@@ -15,14 +15,14 @@ def calculate_hash(previous_hash: str, payload: dict) -> str:
 
 
 def make_entry(action: str, entity_type: str, entity_id: int, actor: str,
-               detail: dict, previous_hash: str) -> dict:
+               detail: dict, previous_hash: str, created_at: str | None = None) -> dict:
     payload = {
         "action": action,
         "entity_type": entity_type,
         "entity_id": entity_id,
         "actor": actor,
         "detail": detail,
-        "created_at": utc_now(),
+        "created_at": created_at or utc_now(),
     }
     return dict(payload, previous_hash=previous_hash,
                 entry_hash=calculate_hash(previous_hash, payload))

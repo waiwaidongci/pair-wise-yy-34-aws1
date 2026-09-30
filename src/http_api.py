@@ -80,6 +80,18 @@ def make_handler(service: Service, static_dir: str):
                     self._json(200, {"status": "ok"})
                 elif path == "/":
                     self._html(root / "index.html")
+                elif path == "/api/imports/batches":
+                    actor, role = self._identity()
+                    ref = parse_qs(urlparse(self.path).query).get("batch_ref", [None])[0]
+                    self._json(200, service.get_batch(ref, role))
+                elif path == "/api/conflicts":
+                    actor, role = self._identity()
+                    status = parse_qs(urlparse(self.path).query).get("status", [None])[0]
+                    self._json(200, {"conflicts": service.list_conflicts(role, status)})
+                elif path.startswith("/api/conflicts/"):
+                    conflict_id = int(path.rsplit("/", 1)[-1])
+                    actor, role = self._identity()
+                    self._json(200, service.get_conflict(conflict_id, role))
                 elif path == "/api/items":
                     actor, role = self._identity()
                     del actor
@@ -89,6 +101,11 @@ def make_handler(service: Service, static_dir: str):
                     actor, role = self._identity()
                     del actor
                     self._json(200, {"records": service.list_records(item_id, role)})
+                elif path.startswith("/api/items/") and path.endswith("/versions"):
+                    item_id = int(path.split("/")[3])
+                    actor, role = self._identity()
+                    del actor
+                    self._json(200, {"versions": service.list_item_versions(item_id, role)})
                 elif path.startswith("/api/items/"):
                     item_id = int(path.rsplit("/", 1)[-1])
                     actor, role = self._identity()
@@ -110,6 +127,12 @@ def make_handler(service: Service, static_dir: str):
                 body = self._body()
                 if path == "/api/items":
                     self._json(201, service.create_item(body, actor, role))
+                elif path == "/api/imports/batches":
+                    self._json(200, service.submit_batch(body, actor, role))
+                elif path.startswith("/api/conflicts/") and path.endswith("/resolve"):
+                    conflict_id = int(path.split("/")[3])
+                    self._json(200, service.resolve_conflict(
+                        conflict_id, body, actor, role))
                 elif path.startswith("/api/items/") and path.endswith("/records"):
                     item_id = int(path.split("/")[3])
                     self._json(201, service.add_record(item_id, body, actor, role))
