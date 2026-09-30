@@ -76,6 +76,7 @@ def make_handler(service: Service, static_dir: str):
         def do_GET(self) -> None:
             try:
                 path = urlparse(self.path).path
+                query = parse_qs(urlparse(self.path).query)
                 if path == "/health":
                     self._json(200, {"status": "ok"})
                 elif path == "/":
@@ -84,6 +85,11 @@ def make_handler(service: Service, static_dir: str):
                     actor, role = self._identity()
                     del actor
                     self._json(200, {"items": service.list_items(role)})
+                elif path.startswith("/api/items/") and path.endswith("/versions"):
+                    item_id = int(path.split("/")[3])
+                    actor, role = self._identity()
+                    del actor
+                    self._json(200, {"versions": service.item_versions(item_id, role)})
                 elif path.startswith("/api/items/") and path.endswith("/records"):
                     item_id = int(path.split("/")[3])
                     actor, role = self._identity()
@@ -94,6 +100,16 @@ def make_handler(service: Service, static_dir: str):
                     actor, role = self._identity()
                     del actor
                     self._json(200, service.get_item(item_id, role))
+                elif path.startswith("/api/import/batches/"):
+                    batch_id = path.rsplit("/", 1)[-1]
+                    actor, role = self._identity()
+                    del actor
+                    self._json(200, service.get_import_batch(batch_id, role))
+                elif path == "/api/conflicts":
+                    actor, role = self._identity()
+                    del actor
+                    status = query.get("status", [None])[0]
+                    self._json(200, {"conflicts": service.list_conflicts(role, status)})
                 elif path == "/api/audit":
                     actor, role = self._identity()
                     del actor
@@ -119,6 +135,16 @@ def make_handler(service: Service, static_dir: str):
                     expected = body.get("expected_version")
                     self._json(200, service.transition(
                         item_id, target, expected, actor, role))
+                elif path == "/api/import/batches":
+                    batch_id = body.get("batch_id")
+                    operations = body.get("operations")
+                    self._json(200, service.import_batch(batch_id, operations, actor, role))
+                elif path.startswith("/api/conflicts/") and path.endswith("/adjudicate"):
+                    conflict_id = int(path.split("/")[3])
+                    decision = body.get("decision")
+                    content = body.get("content")
+                    self._json(200, service.adjudicate(
+                        conflict_id, decision, content, actor, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:

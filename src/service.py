@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .domain import ensure_role, normalize_severity, require_number, require_text
+from .domain import (ValidationError, ensure_role, normalize_severity,
+                     require_number, require_text)
 from .repository import Repository
-from .rules import (AUDIT_ROLES, CREATE_ROLES, ENTITY, RECORD_ROLES, TITLE,
-                    VIEW_ROLES, completion_blockers, escalation_required,
-                    priority_score, response_deadline_hours, role_for_transition,
-                    validate_transition)
+from .rules import (ADJUDICATE_ROLES, AUDIT_ROLES, CONFLICT_VIEW_ROLES, CREATE_ROLES,
+                    ENTITY, IMPORT_ROLES, RECORD_ROLES, TITLE, VIEW_ROLES,
+                    completion_blockers, escalation_required, priority_score,
+                    response_deadline_hours, role_for_transition, validate_transition)
 
 
 class Service:
@@ -67,12 +68,12 @@ class Service:
         if blockers:
             from .domain import ConflictError
             raise ConflictError("；".join(blockers))
-        updated = self.repository.transition_item(item_id, target, expected_version, actor)
-        self.repository.append_audit("transition", ENTITY, item_id, actor, {
-            "from": item["status"], "to": target,
-            "escalation_required": escalation_required(
-                item["severity"], item["quantity"], item["threshold"]),
-        })
+        updated = self.repository.transition_with_audit(
+            item_id, target, expected_version, actor, {
+                "from": item["status"], "to": target,
+                "escalation_required": escalation_required(
+                    item["severity"], item["quantity"], item["threshold"]),
+            })
         return self.enrich(updated)
 
     def get_item(self, item_id: int, role: str) -> Dict[str, Any]:
@@ -90,6 +91,44 @@ class Service:
     def audit(self, role: str, item_id: Optional[int] = None) -> list:
         ensure_role(role, AUDIT_ROLES)
         return self.repository.list_audit(item_id)
+
+    def import_batch(self, batch_id: str, operations: list, actor: str,
+                     role: str) -> Dict[str, Any]:
+        ensure_role(role, IMPORT_ROLES)
+        actor = require_text(actor, "actor", 100)
+        batch_id = require_text(batch_id, "batch_id", 100)
+        if not isinstance(operations, list) or not operations:
+            raise ValidationError("operations必须是非空数组")
+        return self.repository.import_batch(batch_id, actor, operations)
+
+    def get_import_batch(self, batch_id: str, role: str) -> Dict[str, Any]:
+        self._view(role)
+        return self.repository.get_batch(batch_id)
+
+    def list_conflicts(self, role: str, status: Optional[str] = None) -> list:
+        ensure_role(role, CONFLICT_VIEW_ROLES)
+        return self.repository.list_conflicts(status)
+
+    def adjudicate(self, conflict_id: int, decision: str,
+                   content: Optional[Dict[str, Any]], actor: str,
+                   role: str) -> Dict[str, Any]:
+        ensure_role(role, ADJUDICATE_ROLES)
+        actor = require_text(actor, "actor", 100)
+        if decision == "merge":
+            if not isinstance(content, dict):
+                raise ValidationError("merge裁决必须提供content")
+            title = require_text(content.get("title"), "title", 200)
+            description = require_text(content.get("description"), "description")
+            severity = normalize_severity(content.get("severity"))
+            quantity = require_number(content.get("quantity", 0), "quantity")
+            threshold = require_number(content.get("threshold", 1), "threshold", 0.000001)
+            content = {"title": title, "description": description, "severity": severity,
+                       "quantity": quantity, "threshold": threshold}
+        return self.repository.adjudicate_conflict(conflict_id, decision, content, actor)
+
+    def item_versions(self, item_id: int, role: str) -> list:
+        self._view(role)
+        return self.repository.list_item_versions(item_id)
 
     @staticmethod
     def enrich(item: Dict[str, Any]) -> Dict[str, Any]:
